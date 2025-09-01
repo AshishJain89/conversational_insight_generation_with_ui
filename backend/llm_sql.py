@@ -6,7 +6,7 @@ from langchain_groq import ChatGroq
 SYSTEM_PROMPT='''You are an expert SQLite generator. Only output a single SELECT query.'''
 
 def build_chain():
-    llm=ChatGroq(model=os.getenv('MODEL_NAME','llama3-70b-8192'), temperature=0)
+    llm=ChatGroq(model=os.getenv('MODEL_NAME','llama-3.1-8b-instant'), temperature=0)
     prompt=ChatPromptTemplate.from_messages([
         ('system', SYSTEM_PROMPT),
         ('human','Schema:\n{schema}\nQuestion: {question}\nSQL only in ```sql``` block')])

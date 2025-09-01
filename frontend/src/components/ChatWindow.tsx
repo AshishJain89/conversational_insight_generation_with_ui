@@ -43,7 +43,7 @@ export const ChatWindow = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query: content }),
+        body: JSON.stringify({ question: content, execute: true }),
       });
 
       if (!response.ok) {
@@ -54,7 +54,13 @@ export const ChatWindow = () => {
       
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: data.result || data.response || JSON.stringify(data),
+        content: JSON.stringify({
+          sql: data.sql || 'No SQL generated',
+          // Use:
+          result: data.rows && data.rows.length > 0 ? 
+          `Columns: ${data.columns.join(', ')}\nData:\n${data.rows.map(row => row.join(', ')).join('\n')}` : 
+          'No data found'
+        }),
         role: 'assistant',
         timestamp: new Date(),
       };

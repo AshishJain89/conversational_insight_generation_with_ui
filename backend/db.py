@@ -6,23 +6,41 @@ def init_db(path: str):
     con = sqlite3.connect(path)
     cur = con.cursor()
     cur.executescript('''
-    CREATE TABLE IF NOT EXISTS customers(id INTEGER PRIMARY KEY, name TEXT, city TEXT, signup_date TEXT);
-    CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY, name TEXT, category TEXT, price REAL);
-    CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY, customer_id INT, product_id INT, quantity INT, order_date TEXT);
+        CREATE TABLE IF NOT EXISTS customers(id INTEGER PRIMARY KEY, name TEXT, city TEXT, signup_date TEXT);
+        CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY, name TEXT, category TEXT, price REAL);
+        CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY, customer_id INT, product_id INT, quantity INT, order_date TEXT);
     ''')
-    con.commit(); con.close()
+    con.commit()
+    con.close()
 
 def fetch_schema(path: str) -> str:
-    con = sqlite3.connect(path); cur = con.cursor()
-    schema=[]; cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    con = sqlite3.connect(path)
+    cur = con.cursor()
+    schema=[]
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
     for (t,) in cur.fetchall():
         cur.execute(f'PRAGMA table_info({t})')
         cols=[c[1] for c in cur.fetchall()]
         schema.append(f"Table {t}: {', '.join(cols)}")
-    con.close(); return '\n'.join(schema)
+    con.close()
+    return '\n'.join(schema)
 
 def safe_select(path: str, sql: str):
-    con = sqlite3.connect(path); cur = con.cursor()
-    cur.execute(sql); rows=cur.fetchall()
+    con = sqlite3.connect(path)
+    cur = con.cursor()
+    cur.execute(sql)
+    rows=cur.fetchall()
     cols=[d[0] for d in cur.description]
-    con.close(); return cols, rows
+    con.close()
+    # Convert rows to serializable format
+    serializable_rows = [[str(cell) if cell is not None else None for cell in row] for row in rows]
+    return cols, serializable_rows
+
+def insert_sample_data(path: str):
+    con = sqlite3.connect(path)
+    cur = con.cursor()
+    cur.execute("INSERT OR IGNORE INTO customers (id, name, city, signup_date) VALUES (1, 'John Doe', 'NYC', '2024-01-01')")
+    cur.execute("INSERT OR IGNORE INTO products (id, name, category, price) VALUES (1, 'Laptop', 'Electronics', 999.99)")
+    cur.execute("INSERT OR IGNORE INTO orders (id, customer_id, product_id, quantity, order_date) VALUES (1, 1, 1, 2, '2024-01-15')")
+    con.commit()
+    con.close()
