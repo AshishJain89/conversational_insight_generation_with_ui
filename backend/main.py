@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Configuration
-DB_PATH = os.getenv('DB_PATH','./data/app.db')
+DB_PATH = os.getenv('DB_PATH','./data/northwind.db')
 HOST = os.getenv('HOST', '0.0.0.0')
 PORT = int(os.getenv('PORT', 8080))
 ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', "*").split(',')
