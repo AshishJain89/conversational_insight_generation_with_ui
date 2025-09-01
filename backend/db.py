@@ -1,5 +1,6 @@
 import os, sqlite3
 from typing import List, Tuple
+from prettytable import PrettyTable
 
 DB_PATH = os.getenv('DB_PATH','./data/northwind.db')
 
@@ -34,6 +35,8 @@ def fetch_schema(path: str = DB_PATH) -> str:
 
 
 def safe_select(sql: str, path: str = DB_PATH):
+    """Run a SELECT safely and return results.
+       If as_table=True, return a string table, else return (cols, rows)."""
     con = get_connection(path)
     cur = con.cursor()
     cur.execute(sql)
