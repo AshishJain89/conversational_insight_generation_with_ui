@@ -8,6 +8,53 @@ interface ChatMessageProps {
 export const ChatMessage = ({ message }: ChatMessageProps) => {
   const isUser = message.role === 'user';
   
+  // Check if assistant message contains SQL
+  const isSQL = !isUser && (message.content.includes('SELECT') || message.content.includes('sql'));
+  
+  const formatSQL = (content: string) => {
+    // Try to parse JSON response
+    try {
+      const data = JSON.parse(content);
+      if (data.sql && data.result) {
+        return (
+          <div className="space-y-4">
+            {/* SQL Query */}
+            <div className="bg-slate-800 text-slate-100 p-4 rounded-lg font-mono text-sm overflow-x-auto">
+              <div className="text-xs text-slate-400 mb-2 uppercase tracking-wide">SQL Query</div>
+              <div dangerouslySetInnerHTML={{ 
+                __html: data.sql.replace(/\b(SELECT|FROM|WHERE|JOIN|AS|SUM|COUNT)\b/g, '<span class="text-green-400 font-bold">$1</span>')
+                  .replace(/'([^']*)'/g, '<span class="text-orange-300">\'$1\'</span>')
+              }} />
+            </div>
+            
+            {/* Results */}
+            <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-lg">
+              <div className="text-xs text-green-600 dark:text-green-400 mb-2 uppercase tracking-wide flex items-center gap-2">
+                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                Query Results
+              </div>
+              <div className="font-mono text-sm">{data.result}</div>
+            </div>
+          </div>
+        );
+      }
+    } catch (e) {
+      // If not JSON, check for SQL keywords and format
+      if (content.includes('SELECT') || content.includes('FROM')) {
+        return (
+          <div className="bg-slate-800 text-slate-100 p-4 rounded-lg font-mono text-sm overflow-x-auto">
+            <div dangerouslySetInnerHTML={{ 
+              __html: content.replace(/\b(SELECT|FROM|WHERE|JOIN|AS|SUM|COUNT)\b/g, '<span class="text-green-400 font-bold">$1</span>')
+                .replace(/'([^']*)'/g, '<span class="text-orange-300">\'$1\'</span>')
+            }} />
+          </div>
+        );
+      }
+    }
+    
+    return content;
+  };
+  
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
@@ -18,9 +65,7 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
             : "bg-chat-surface text-foreground mr-12 border border-border/20"
         )}
       >
-        <div className="whitespace-pre-wrap break-words">
-          {message.content}
-        </div>
+        {isSQL ? formatSQL(message.content) : message.content}
         <div
           className={cn(
             "text-xs mt-2 opacity-70",

@@ -1,14 +1,14 @@
-import os, logging, uvicorn
+import os, logging, uvicorn, sqlite3
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from typing import Optional, List, Any
 
-from .db import init_db, fetch_schema, safe_select
+from .db import init_db, fetch_schema, safe_select, insert_sample_data
 from .llm_sql import build_chain, extract_sql
 
 logging.basicConfig(
@@ -22,7 +22,7 @@ load_dotenv()
 # Configuration
 DB_PATH = os.getenv('DB_PATH','./data/app.db')
 HOST = os.getenv('HOST', '0.0.0.0')
-PORT = int(os.getenv('PORT', 8000))
+PORT = int(os.getenv('PORT', 8080))
 ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', "*").split(',')
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
@@ -48,6 +48,9 @@ class SQLResponse(BaseModel):
     rows: Optional[List[List[Any]]] = None
     error: Optional[str] = None
 
+    class Config:
+        arbitrary_types_allowed = True
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -58,6 +61,7 @@ async def lifespan(app: FastAPI):
         # Initialize database and schema
         logger.info(f'Initializing database at {DB_PATH}')
         init_db(DB_PATH)
+        insert_sample_data(DB_PATH)
         schema = fetch_schema(DB_PATH)
         logger.info('Database initialized successfully!')
 
@@ -87,8 +91,6 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
-# Mount static files (frontend)
-# app.mount("/", StaticFiles(directory='frontend', html=True), name='static')
 
 @app.exception_handler(Exception)
 async def global_execution_handler(request, exc):
@@ -118,6 +120,15 @@ def health_check():
         'database_initialized': schema is not None,
         'llm_chain_initialized': chain is not None
     }
+
+@app.get("/api/test")
+def test_data():
+    cols, rows = safe_select(DB_PATH, "SELECT * FROM customers")
+    return {
+        'columns': cols,
+        'rows': rows
+    }
+
 
 @app.post('/api/nl2sql', response_model=SQLResponse)
 def nl2sql(
@@ -157,6 +168,14 @@ def nl2sql(
         logger.error(f'Error processing request: {e}', exc_info=True)
         raise HTTPException(status_code=500, detail='Failed to process request')
 
+
+
+@app.get("/")
+def read_root():
+    return FileResponse('frontend/dist/index.html')
+
+# Mount static files (frontend)
+app.mount("/static", StaticFiles(directory='frontend/dist', html=True), name='static')
 
 if __name__ == '__main__':
     uvicorn.run('main:app', host=HOST, port=PORT, log_level=LOG_LEVEL.lower(), reload=True)
