@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from typing import Optional, List, Any
 
-from db import init_db, fetch_schema, safe_select
-from llm_sql import build_chain, extract_sql
+from .db import init_db, fetch_schema, safe_select
+from .llm_sql import build_chain, extract_sql
 
 logging.basicConfig(
     level=logging.INFO,
