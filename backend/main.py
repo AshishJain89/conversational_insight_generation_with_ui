@@ -1,3 +1,4 @@
+from prettytable import PrettyTable
 import os, logging, uvicorn, sqlite3
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from typing import Optional, List, Any
 
-from .db import init_db, fetch_schema, safe_select, insert_sample_data
+from .db import fetch_schema, safe_select
 from .llm_sql import build_chain, extract_sql
 
 logging.basicConfig(
@@ -44,9 +45,11 @@ class GenerateSQLQuery(BaseModel):
 
 class SQLResponse(BaseModel):
     sql: str
+    table: Optional[str] = None
     columns: Optional[List[str]] = None
     rows: Optional[List[List[Any]]] = None
-    error: Optional[str] = None
+    message: Optional[str] = None
+
 
     class Config:
         arbitrary_types_allowed = True
@@ -60,8 +63,8 @@ async def lifespan(app: FastAPI):
     try:
         # Initialize database and schema
         logger.info(f'Initializing database at {DB_PATH}')
-        init_db(DB_PATH)
-        insert_sample_data(DB_PATH)
+        # init_db(DB_PATH)
+        # insert_sample_data(DB_PATH)
         schema = fetch_schema(DB_PATH)
         logger.info('Database initialized successfully!')
 
@@ -123,7 +126,7 @@ def health_check():
 
 @app.get("/api/test")
 def test_data():
-    cols, rows = safe_select(DB_PATH, "SELECT * FROM customers")
+    cols, rows = safe_select("SELECT * FROM customers", DB_PATH)
     return {
         'columns': cols,
         'rows': rows
@@ -153,14 +156,24 @@ def nl2sql(
         # Execute SQL if requested
         if query.execute:
             try:
-                columns, rows = safe_select(DB_PATH, sql)
+                columns, rows = safe_select(sql, DB_PATH)
+                if rows and len(rows) > 0:
+                    table = PrettyTable()
+                    table.field_names = columns
+                    for row in rows:
+                        table.add_row(row)
+                    formatted = str(table)
+                else:
+                    formatted = "No data found"
+
                 result.columns = columns
                 result.rows = rows
+                result.table = formatted
                 logger.info(f"SQL executed successfully, returned {len(rows)} rows")
             except Exception as e:
                 error_msg = f"SQL execution error: {str(e)}"
                 logger.error(error_msg)
-                result.error = error_msg
+                result.message = error_msg
         return result
     except HTTPException:
         raise
@@ -211,7 +224,7 @@ if __name__ == '__main__':
 #     res = {'sql':sql}
 #     if p.execute:
 #         try: 
-#             cols, rows = safe_select(DB, sql)
+#             cols, rows = safe_select(sql, DB)
 #             res.update({'columns': cols, 'rows': rows})
 #         except Exception as e: 
 #             res['error'] = str(e)
