@@ -1,0 +1,34 @@
+# Environment Configuration Example for Conversational Insight Generation Bot
+# Copy this file to .env and fill in your actual values
+
+# Database Configuration
+DB_PATH=./data/northwind.db
+HOST=0.0.0.0
+PORT=8080
+
+# CORS Configuration
+ALLOWED_ORIGINS=*
+
+# Logging
+LOG_LEVEL=INFO
+
+# LLM Configuration - Using the best free model available in Groq
+MODEL_NAME=llama-3.1-70b-instant
+
+# Groq API Configuration
+GROQ_API_KEY=your_groq_api_key_here
+
+# Feedback Loop Configuration
+MAX_RETRIES=2
+VALIDATION_TIMEOUT=30
+
+# Performance Settings
+MAX_HORIZON=365
+MAX_ROWS=20000
+DEFAULT_TIMEOUT=30
+
+# Notes:
+# - llama-3.1-70b-instant is the best free model available in Groq
+# - It has 70B parameters compared to the previous 8B model
+# - This significantly improves complex query generation capabilities
+# - The model is still fast due to Groq's optimization
