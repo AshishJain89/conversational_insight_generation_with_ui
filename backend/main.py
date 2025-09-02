@@ -1,5 +1,5 @@
 from prettytable import PrettyTable
-import os, logging, uvicorn, sqlite3
+import os, logging, uvicorn, sqlite3, json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +35,7 @@ class GenerateSQLQuery(BaseModel):
 
 class SQLResponse(BaseModel):
     sql: str
+    forecast: Optional[bool] = None
     table: Optional[str] = None
     columns: Optional[List[str]] = None
     rows: Optional[List[List[Any]]] = None
@@ -60,9 +61,18 @@ async def lifespan(app: FastAPI):
     yield
     logger.info('Application shutdown')
 
-app = FastAPI(title='NL2SQL API', description='Natural Language to SQL query generation and execution service', version='1.0.0', lifespan=lifespan)
-
-app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=['GET','POST'], allow_headers=['*'])
+app = FastAPI(
+    title='Conversational Insight Generator', 
+    description='Natural Language to SQL query generation and execution service', 
+    version='1.0.0', 
+    lifespan=lifespan
+)
+app.add_middleware(
+    CORSMiddleware, 
+    allow_origins=ALLOWED_ORIGINS, 
+    allow_methods=['GET','POST'], 
+    allow_headers=['*']
+)
 
 @app.exception_handler(Exception)
 async def global_execution_handler(request, exc):
@@ -85,11 +95,15 @@ def health_check():
 
 @app.get('/api/test')
 def test_data():
-    cols, rows = safe_select('SELECT * FROM customers', DB_PATH)
+    cols, rows = safe_select('SELECT * FROM customers LIMIT 5', DB_PATH)
     return {'columns': cols, 'rows': rows}
 
-@app.post('/api/nl2sql', response_model=SQLResponse)
-def nl2sql(query: GenerateSQLQuery, llm_chain=Depends(get_chain), db_schema=Depends(get_schema)):
+@app.post('/api/nl2sql')
+def nl2sql(
+    query: GenerateSQLQuery, 
+    llm_chain=Depends(get_chain), 
+    db_schema=Depends(get_schema)
+):
     try:
         logger.info(f"Processing question: {query.question}")
         response = llm_chain.invoke({'schema': db_schema, 'question': query.question})
@@ -97,35 +111,32 @@ def nl2sql(query: GenerateSQLQuery, llm_chain=Depends(get_chain), db_schema=Depe
         # Parse response
         response_dict = {}
         try:
-            response_dict = eval(response) if response.strip().startswith('{') else {}
+            response_dict = json.loads(response) if response.strip().startswith('{') else {}
         except Exception:
             response_dict = {}
 
         sql = response_dict.get('sql', extract_sql(response))
         forecast = response_dict.get('forecast', False)
 
-        result = SQLResponse(sql=sql)
+        result = SQLResponse(sql=sql, forecast=forecast)
 
-        if query.execute:
-            if forecast:
-                result.message = 'Forecast detected; SQL not executed.'
-            else:
-                try:
-                    columns, rows = safe_select(sql, DB_PATH)
-                    table = PrettyTable() if rows else None
-                    if table:
-                        table.field_names = columns
-                        for row in rows:
-                            table.add_row(row)
-                        result.table = str(table)
-                    else:
-                        result.table = 'No data found'
-                    result.columns = columns
-                    result.rows = rows
-                    logger.info(f"SQL executed successfully, returned {len(rows)} rows")
-                except Exception as e:
-                    result.message = f"SQL execution error: {e}"
-        return result
+        if query.execute and not forecast:
+            try:
+                columns, rows = safe_select(sql, DB_PATH)
+                table = PrettyTable() if rows else None
+                if table:
+                    table.field_names = columns
+                    for row in rows:
+                        table.add_row(row)
+                    result.table = str(table)
+                else:
+                    result.table = 'No data found'
+                result.columns = columns
+                result.rows = rows
+                logger.info(f"SQL executed successfully, returned {len(rows)} rows")
+            except Exception as e:
+                result.message = f"SQL execution error: {e}"
+        return result.model_dump()
 
     except HTTPException:
         raise
