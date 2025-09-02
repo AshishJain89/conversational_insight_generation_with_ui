@@ -12,8 +12,8 @@ ALLOWED_ORIGINS=*
 # Logging
 LOG_LEVEL=INFO
 
-# LLM Configuration - Using the best free model available in Groq
-MODEL_NAME=llama-3.1-70b-instant
+# LLM Configuration - Best available free model in Groq
+MODEL_NAME=llama-3.1-8b-instant
 
 # Groq API Configuration
 GROQ_API_KEY=your_groq_api_key_here
@@ -28,7 +28,7 @@ MAX_ROWS=20000
 DEFAULT_TIMEOUT=30
 
 # Notes:
-# - llama-3.1-70b-instant is the best free model available in Groq
-# - It has 70B parameters compared to the previous 8B model
-# - This significantly improves complex query generation capabilities
-# - The model is still fast due to Groq's optimization
+# - llama-3.1-8b-instant is the best free model available in Groq
+# - It has 8B parameters and provides good performance for SQL generation
+# - The model is fast and cost-effective for production use
+# - Alternative free models: mixtral-8x7b-32768, gemma2-9b-it

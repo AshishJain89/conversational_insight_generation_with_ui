@@ -13,6 +13,7 @@ from .db import fetch_schema, safe_select
 from .llm_sql import build_chain, extract_sql, detect_forecast_intent
 from .query_validator import create_validator
 from .feedback_loop import create_feedback_loop
+from .arima_model_selector import ARIMAModelSelector
 
 # forecasting imports
 import pandas as pd, numpy as np, io, base64, traceback, matplotlib, matplotlib.pyplot as plt
@@ -194,7 +195,7 @@ def process_with_feedback(
         logger.error(f'Error processing with feedback: {e}', exc_info=True)
         raise HTTPException(status_code=500, detail='Failed to process with feedback')
 
-# ---- nl2sql endpoint ----
+# Updated nl2sql endpoint in main.py
 @app.post('/api/nl2sql')
 def nl2sql(
     query: GenerateSQLQuery,
@@ -205,115 +206,89 @@ def nl2sql(
     try:
         logger.info(f"Processing question: {query.question}")
 
-        # Detect forecast intent early
-        if detect_forecast_intent(query.question):
-            # Generate SQL via LLM to fetch the time series from DB
-            response = llm_chain.invoke({'schema': db_schema, 'question': query.question})
-
-            # Parse response to extract SQL
-            response_dict = {}
-            try:
-                response_dict = json.loads(response) if isinstance(response, str) and response.strip().startswith('{') else {}
-            except Exception:
-                response_dict = {}
-
-            sql = response_dict.get('sql') if isinstance(response_dict, dict) else None
-            if not sql:
-                sql = extract_sql(response) or None
-
-            if not sql:
-                return SQLResponse(
-                    sql=None,
-                    forecast=True,
-                    type="text",
-                    message="Forecast intent detected but could not generate SQL for forecasting.",
-                    columns=[],
-                    rows=[]
-                ).model_dump()
-
-            # Return lightweight object instructing client to call /api/forecast with this SQL
-            return SQLResponse(
-                sql=sql,
-                forecast=True,
-                type="forecast",
-                message="Forecast intent detected. Call /api/forecast with the returned SQL to compute the forecast.",
-                columns=[],
-                rows=[]
-            ).model_dump()
-
+        # Generate SQL via LLM
         response = llm_chain.invoke({'schema': db_schema, 'question': query.question})
 
-        # Parse response
+        # Parse response to extract SQL and forecast intent
         response_dict = {}
         sql = None
         forecast = False
         
         try:
-            # First try to parse as JSON
             if isinstance(response, str) and response.strip().startswith('{'):
                 response_dict = json.loads(response)
                 sql = response_dict.get('sql')
                 forecast = response_dict.get('forecast', False)
             
-            # If JSON parsing failed or no SQL found, try to extract SQL using the helper function
             if not sql:
                 sql = extract_sql(response)
                 
-            # Validate that we have a valid SQL query
-            if sql:
-                # Basic SQL validation - ensure it starts with SELECT and doesn't contain JSON syntax
-                sql = sql.strip()
-                if not sql.upper().startswith('SELECT'):
-                    sql = None
-                elif '{' in sql or '}' in sql:
-                    # Contains JSON syntax, likely malformed
-                    sql = None
-                    
+            # Also check for forecast intent in the original question
+            if not forecast:
+                forecast = detect_forecast_intent(query.question)
+                
         except Exception as e:
             logger.warning(f"Failed to parse LLM response: {e}")
-            # Fallback to extract_sql
             sql = extract_sql(response) if response else None
+            forecast = detect_forecast_intent(query.question)
 
-        # Enhanced validation using the new validator
-        validation_feedback = None
-        if sql:
-            validation_feedback = db_validator.validate_sql(sql)
-            if not validation_feedback.is_valid:
-                logger.warning(f"Generated SQL failed validation: {validation_feedback.error_message}")
-                # You could optionally use the feedback loop here to retry
-                # For now, we'll just log the validation failure
-
+        # Initialize result object
         result = SQLResponse(sql=sql, forecast=forecast, type="table")
 
-        if query.execute and not forecast:
-            if not sql:
-                result.message = 'No valid SQL generated. Please rephrase your question.'
-                result.type = 'text'
-                return result.model_dump()
-            
-            # If validation failed, provide detailed feedback
-            if validation_feedback and not validation_feedback.is_valid:
-                result.message = f"Generated SQL failed validation: {validation_feedback.error_message}. Suggestions: {', '.join(validation_feedback.suggestions) if validation_feedback.suggestions else 'None'}"
+        # Always try to execute SQL if we have it and execution is requested
+        if query.execute and sql:
+            # Validate the SQL first
+            validation_feedback = db_validator.validate_sql(sql)
+            if not validation_feedback.is_valid:
+                result.message = f"Generated SQL failed validation: {validation_feedback.error_message}"
+                if validation_feedback.suggestions:
+                    result.message += f". Suggestions: {', '.join(validation_feedback.suggestions)}"
                 result.type = "text"
                 return result.model_dump()
             
             try:
+                # Execute the SQL query
                 columns, rows = safe_select(sql, DB_PATH)
-                table = PrettyTable() if rows else None
-                if table:
-                    table.field_names = columns
-                    for row in rows:
-                        table.add_row(row)
-                    result.table = str(table)
-                else:
-                    result.table = 'No data found'
                 result.columns = columns
                 result.rows = rows
+                
+                # Set appropriate type and message based on forecast intent
+                if forecast:
+                    result.type = "forecast"
+                    result.message = f"Retrieved {len(rows)} rows for forecasting analysis. Click 'Generate Forecast' to run ARIMA model."
+                else:
+                    # Check if it's time-series data but not forecasting
+                    has_date_column = any('date' in col.lower() or 'time' in col.lower() or 'month' in col.lower() or 'year' in col.lower() for col in columns)
+                    if has_date_column:
+                        result.type = "forecast"  # Use forecast type for historical time-series
+                        result.message = f"Retrieved {len(rows)} rows of historical time-series data. You can analyze trends or generate forecasts."
+                    else:
+                        # Regular query - create pretty table
+                        table = PrettyTable() if rows else None
+                        if table and len(rows) > 0:
+                            table.field_names = columns
+                            # Limit table display to first 50 rows for performance
+                            display_rows = rows[:50]
+                            for row in display_rows:
+                                table.add_row(row)
+                            result.table = str(table)
+                            if len(rows) > 50:
+                                result.message = f"Showing first 50 of {len(rows)} rows"
+                        else:
+                            result.table = 'No data found'
+                            result.message = 'Query executed successfully but returned no results'
+                
                 logger.info(f"SQL executed successfully, returned {len(rows)} rows")
+                
             except Exception as e:
                 logger.exception('SQL execution error')
                 result.message = f"SQL execution error: {e}"
                 result.type = "text"
+                result.sql = sql  # Keep the SQL even if execution failed
+        
+        elif not sql:
+            result.message = 'No valid SQL generated. Please rephrase your question.'
+            result.type = 'text'
         
         return result.model_dump()
 
@@ -390,33 +365,27 @@ def _prepare_series(columns: List[str], rows: List[List[Any]], date_col: str, va
 
     df = df.set_index(date_col).sort_index()
 
-    inferred = freq
-    if not inferred:
-        try:
-            inferred = pd.infer_freq(df.index)
-        except Exception:
-            inferred = None
-    if not inferred:
-        diffs = np.diff(df.index.astype('int64') // 10**9)
-        if len(diffs) > 0:
-            median_s = int(np.median(diffs))
-            if median_s % (86400 * 30) == 0:
-                inferred = 'M'
-            elif median_s % 86400 == 0:
-                inferred = 'D'
+    # Better frequency detection for monthly data
+    if not freq:
+        # Check if data looks monthly
+        if len(df) >= 2:
+            time_diff = df.index[1] - df.index[0]
+            if time_diff.days >= 25 and time_diff.days <= 35:  # Roughly monthly
+                freq = 'ME'  # Changed from 'M' to 'ME'
+            elif time_diff.days >= 350 and time_diff.days <= 380:  # Roughly yearly
+                freq = 'Y'
             else:
-                inferred = 'D'
-        else:
-            inferred = 'D'
-
-    try:
-        offset = pd.tseries.frequencies.to_offset(inferred)
-    except Exception:
-        offset = pd.tseries.frequencies.to_offset('D')
-        inferred = 'D'
-
-    series = df[value_col].resample(inferred).sum()
-
+                freq = 'D'  # Default to daily
+    
+    # Force monthly frequency for monthly data
+    if freq == 'M' or freq == 'ME' or (freq is None and len(df) <= 24):
+        freq = 'ME'  # Changed from 'M' to 'ME'
+        # Resample to monthly if needed
+        df = df.resample('ME').sum()  # Changed from 'M' to 'ME'
+    
+    series = df[value_col]
+    
+    # Handle missing values
     na_frac = series.isna().mean()
     if na_frac > 0:
         if missing_method == 'interpolate':
@@ -433,44 +402,30 @@ def _prepare_series(columns: List[str], rows: List[List[Any]], date_col: str, va
     if series.empty:
         raise ValueError('Time series empty after preprocessing')
 
-    return series, inferred
+    return series, freq
 
 
 def _select_and_fit(ts: pd.Series, seasonal: bool, m: int):
-    if ARIMA is None:
-        raise RuntimeError('statsmodels ARIMA not available')
-    if _HAS_PMDARIMA:
-        try:
-            arima = auto_arima(ts, seasonal=seasonal, m=m if seasonal else 1, error_action='warn', suppress_warnings=True, max_p=3, max_q=3)
-            order = arima.order
-            seasonal_order = arima.seasonal_order if seasonal else (0,0,0,0)
-            model = ARIMA(ts, order=order, seasonal_order=seasonal_order).fit()
-            return model, order, seasonal_order
-        except Exception:
-            pass
-
-    best_aic = np.inf
-    best_res = None
-    for p in range(0,3):
-        for d in range(0,2):
-            for q in range(0,3):
-                try:
-                    mod = ARIMA(ts, order=(p,d,q))
-                    res = mod.fit()
-                    if res.aic < best_aic:
-                        best_aic = res.aic
-                        best_res = (res, (p,d,q), (0,0,0,0))
-                except Exception:
-                    continue
-    if best_res:
-        return best_res
-    raise RuntimeError('Failed to fit ARIMA model')
+    selector = ARIMAModelSelector()
+    return selector.select_and_fit(ts, seasonal, m)
 
 
 def _forecast_and_plot(model, ts: pd.Series, horizon: int, freq: str):
     pred = model.get_forecast(steps=horizon)
     mean = pred.predicted_mean
     ci = pred.conf_int()
+
+    # Validate forecast values before plotting
+    if np.any(np.isnan(mean)) or np.any(np.isinf(mean)):
+        raise ValueError("Forecast contains NaN or infinite values - model is unstable")
+    
+    # Check for reasonable bounds (not too extreme)
+    max_historical = ts.max()
+    min_historical = ts.min()
+    reasonable_range = (min_historical * 0.1, max_historical * 10)
+    
+    if np.any(mean < reasonable_range[0]) or np.any(mean > reasonable_range[1]):
+        raise ValueError("Forecast values are outside reasonable bounds - model may be overfitting")
 
     last = ts.index[-1]
     try:
@@ -497,12 +452,17 @@ def _forecast_and_plot(model, ts: pd.Series, horizon: int, freq: str):
 
     forecast_list = []
     for d, m, (low, high) in zip(future_idx, mean.values, ci.values):
-        forecast_list.append({
-            'date': pd.Timestamp(d).strftime('%Y-%m-%d'),
-            'mean': float(m),
-            'lower': float(low),
-            'upper': float(high)
-        })
+        # Ensure all values are finite and within reasonable bounds
+        if np.isfinite(m) and np.isfinite(low) and np.isfinite(high):
+            forecast_list.append({
+                'date': pd.Timestamp(d).strftime('%Y-%m-%d'),
+                'mean': float(m),
+                'lower': float(low),
+                'upper': float(high)
+            })
+
+    if not forecast_list:
+        raise ValueError("No valid forecast values generated")
 
     return forecast_list, img_b64
 
@@ -522,13 +482,34 @@ def api_forecast(req: ForecastRequest):
                     raise ValueError('Either sql must be provided, or columns and rows must be supplied')
                 columns, rows = req.columns, req.rows
 
+            # More reasonable data requirements
+            if len(rows) < 6:  # Need at least 6 months for basic forecasting
+                return {
+                    'forecast': [], 
+                    'model': {}, 
+                    'diagnostics': {}, 
+                    'plot_png_base64': None, 
+                    'error': 'Insufficient data for reliable forecasting. Need at least 6 data points for monthly data.'
+                }
+
             if len(rows) > MAX_ROWS:
                 raise ValueError(f'too many rows, max {MAX_ROWS}')
 
             df = pd.DataFrame(rows, columns=columns)
             date_col, value_col = _detect_columns(columns, df, req.date_col, req.value_col)
             ts, freq = _prepare_series(columns, rows, date_col, value_col, req.freq, req.missing_method)
-            seasonal_m = 12 if req.seasonal else 1
+            
+            # Adjust seasonal parameters based on data length
+            if len(rows) >= 24:
+                seasonal_m = 12  # Full seasonal cycle
+                req.seasonal = True
+            elif len(rows) >= 12:
+                seasonal_m = 12  # Try seasonal, but may fall back
+                req.seasonal = True
+            else:
+                seasonal_m = 1   # No seasonal component for short series
+                req.seasonal = False
+            
             model, order, seasonal_order = _select_and_fit(ts, req.seasonal, seasonal_m)
 
             forecast_list, img_b64 = _forecast_and_plot(model, ts, req.horizon, freq)
