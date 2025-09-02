@@ -1,4 +1,4 @@
-import os, re
+import os, re, json
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
@@ -32,17 +32,22 @@ def build_chain():
         ('human','Schema:\n{schema}\n\nQuestion: {question}\n\nGenerate SQLite-compatible SQL only in ```sql``` block')])
     return prompt|llm|StrOutputParser()
 
-def extract_sql(txt:str)->str:
-    m=re.search(r'```sql\s*(.*?)```',txt,re.S|re.I)
-    sql = m.group(1).strip() if m else txt.strip()
+def extract_sql(txt: str) -> str:
+    # Remove markdown fences like ```json ...  ``` or ```sql ... ```
+    fenced = re.search(r'```(?:json|sql)?\s*(.*?)```', txt, re.S | re.I)
+    if fenced:
+        txt = fenced.group(1).strip()
     
-    # Fallback fixes for common issues
-    if 'TOP ' in sql.upper():
-        sql = re.sub(r'\bSELECT\s+TOP\s+(\d+)\b', r'SELECT', sql, flags=re.IGNORECASE)
-        if 'LIMIT' not in sql.upper():
-            sql = sql.rstrip(';') + ' LIMIT 10;'
-    
-    return sql
+    # Try to parse JSON and extract sql
+    try:
+        data = json.loads(txt)
+        if isinstance(data, dict) and 'sql' in data:
+            return data['sql']
+    except Exception:
+        pass
+
+    # Otherwise return cleaned string
+    return txt.strip()
 
 # import os, re
 # from langchain_core.prompts import ChatPromptTemplate

@@ -24,9 +24,7 @@ export const ChatWindow = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useEffect(() => { scrollToBottom(); }, [messages]);
 
   const sendMessage = async (content: string) => {
     if (!content.trim()) return;
@@ -65,35 +63,32 @@ export const ChatWindow = () => {
           type: 'forecast',
         };
         setMessages(prev => [...prev, forecastMessage]);
-      }
-
-      // Always show the SQL query
-      const sqlMessage: Message = {
-        id: (Date.now() + 2).toString(),
-        content: data.sql,
-        role: 'assistant',
-        timestamp: new Date(),
-        type: 'sql',
-      };
-
-      const newMessages: Message[] = [sqlMessage];
-
-      // If data rows are available, add them as a table message
-      if (data.rows && data.rows.length > 0) {
-        const tableMessage: Message = {
-          id: (Date.now() + 3).toString(),
-          content: "Here are the results:",
+      } else {
+        const sqlMessage: Message = {
+          id: (Date.now() + 2).toString(),
+          content: data.sql,
           role: 'assistant',
           timestamp: new Date(),
-          type: 'table',
-          columns: data.columns,
-          rows: data.rows,
+          type: 'sql',
         };
-        newMessages.push(tableMessage);
+
+        const newMessages: Message[] = [sqlMessage];
+
+        if (data.columns && data.columns.length > 0) {
+          const tableMessage: Message = {
+            id: (Date.now() + 3).toString(),
+            content: "Here are the results:",
+            role: 'assistant',
+            timestamp: new Date(),
+            type: 'table',
+            columns: data.columns,
+            rows: data.rows || [],
+          };
+          newMessages.push(tableMessage);
+        }
+
+        setMessages(prev => [...prev, ...newMessages]);
       }
-
-      setMessages(prev => [...prev, ...newMessages]);
-
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
@@ -118,21 +113,19 @@ export const ChatWindow = () => {
 
   return (
     <div className="flex flex-col h-screen bg-chat-bg">
-      {/* Header */}
       <div className="flex-shrink-0 bg-chat-surface/90 backdrop-blur-md border-b border-border/50 p-4 shadow-sm">
         <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-          SQL Chat Assistant
+          Conversational Insight Generation Bot
         </h1>
         <p className="text-muted-foreground">Ask questions and get SQL queries instantly</p>
       </div>
 
-      {/* Messages Container */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <div className="text-6xl mb-4">💬</div>
-              <h2 className="text-xl font-semibold mb-2 text-foreground/80">Welcome to SQL Chat</h2>
+              <h2 className="text-xl font-semibold mb-2 text-foreground/80">Hello! I'm your Insight Assistant on Northwind DB</h2>
               <p className="text-muted-foreground">Type your question below to get started!</p>
             </div>
           </div>
@@ -157,7 +150,6 @@ export const ChatWindow = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <div className="flex-shrink-0 p-4 bg-chat-surface/90 backdrop-blur-md border-t border-border/50">
         <ChatInput onSendMessage={sendMessage} disabled={isLoading} />
       </div>
