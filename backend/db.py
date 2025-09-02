@@ -29,7 +29,7 @@ def fetch_schema(path: str = DB_PATH) -> str:
     for (t,) in cur.fetchall():
         cur.execute(f'PRAGMA table_info(t)')
         cols = [c[1] for c in cur.fetchall()]
-        schema.append(f'Table {t}: {', '.join(cols)}')
+        schema.append(f"Table {t}: {', '.join(cols)}")
     con.close()
     return '\n'.join(schema)
 

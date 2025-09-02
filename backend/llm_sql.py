@@ -14,6 +14,29 @@ STRICT REQUIREMENTS:
    - "forecast": boolean, true if the user asks for forecasting.
    - "error": null if no error; otherwise a short machine-readable message.
 
+EXAMPLES OF COMPLEX QUERIES:
+Question: "Show me the top 5 customers by total order value in 2022, including their contact info and order count"
+SQL: SELECT c.CustomerID, c.CompanyName, c.ContactName, c.Phone, 
+       COUNT(o.OrderID) as OrderCount, SUM(od.UnitPrice * od.Quantity) as TotalValue
+     FROM Customers c
+     JOIN Orders o ON c.CustomerID = o.CustomerID
+     JOIN "Order Details" od ON o.OrderID = od.OrderID
+     WHERE strftime('%Y', o.OrderDate) = '2022'
+     GROUP BY c.CustomerID, c.CompanyName, c.ContactName, c.Phone
+     ORDER BY TotalValue DESC
+     LIMIT 5;
+
+Question: "What are the monthly sales trends for each product category in 2022?"
+SQL: SELECT c.CategoryName, strftime('%Y-%m', o.OrderDate) as Month,
+       SUM(od.UnitPrice * od.Quantity) as MonthlySales
+     FROM Categories c
+     JOIN Products p ON c.CategoryID = p.CategoryID
+     JOIN "Order Details" od ON p.ProductID = od.ProductID
+     JOIN Orders o ON od.OrderID = o.OrderID
+     WHERE strftime('%Y', o.OrderDate) = '2022'
+     GROUP BY c.CategoryName, Month
+     ORDER BY c.CategoryName, Month;
+
 FORECASTING DETECTION:
 Set forecast=true for questions like: "predict future sales", "forecast next quarter", "what will sales be", "trend analysis", "future demand", "sales projection".
 Set forecast=false for historical/current data queries like: "show sales", "top products", "customer list".
@@ -23,6 +46,8 @@ COMMON FIXES:
 - Always use JOIN syntax properly.
 - SQLite is case-sensitive for table/column names.
 - Do not use date functions like DATE('now') unless the user supplies explicit date boundaries and those columns exist.
+- For complex aggregations, use proper GROUP BY clauses.
+- When joining multiple tables, ensure proper join conditions.
 
 RESPONSE FORMAT (JSON only):
 Return exactly one JSON object and nothing else. Examples (literal braces are escaped here to prevent template parsing):
@@ -41,16 +66,21 @@ RULES:
 - If a requested table/column is not in Schema, do not guess: return error and sql=null.
 - Always return a single SELECT statement when applicable.
 - Never output explanations, markdown, or any text outside the single JSON object.
+- For complex queries, break them down into logical JOINs and use proper aliases.
 '''
 
 def build_chain():
-    llm=ChatGroq(model=os.getenv('MODEL_NAME','llama-3.1-8b-instant'), temperature=0)
+    # Use the best free model available in Groq - llama-3.1-70b-instant
+    llm=ChatGroq(model=os.getenv('MODEL_NAME','llama-3.1-70b-instant'), temperature=0)
     prompt=ChatPromptTemplate.from_messages([
         ('system', SYSTEM_PROMPT),
         ('human','Schema:\n{schema}\n\nQuestion: {question}\n\nReturn EXACTLY one JSON object with keys "sql", "forecast", "error" only.')])
     return prompt | llm | StrOutputParser()
 
 def extract_sql(txt: str) -> str:
+    if not txt:
+        return ""
+    
     # Remove markdown fences like ```json ...  ``` or ```sql ... ```
     fenced = re.search(r'```(?:json|sql)?\s*(.*?)```', txt, re.S | re.I)
     if fenced:
@@ -60,20 +90,30 @@ def extract_sql(txt: str) -> str:
     try:
         data = json.loads(txt)
         if isinstance(data, dict) and 'sql' in data and data['sql'] is not None:
-            return data['sql'].strip()
+            sql = data['sql'].strip()
+            # Validate the extracted SQL
+            if sql and sql.upper().startswith('SELECT') and '{' not in sql and '}' not in sql:
+                return sql
     except Exception:
         pass
     
-    # Try to extract SQL from text
+    # Try to extract SQL from text using regex
     m = re.search(r'(SELECT[\s\S]+?;?)$', txt, re.I)
     if m:
         sql = m.group(1).strip()
         # Fix common issues
         sql = re.sub(r'\bSELECT\s+TOP\s+(\d+)\b', 'SELECT', sql, flags=re.I)
-        return sql
+        # Ensure no JSON syntax remains
+        if '{' not in sql and '}' not in sql:
+            return sql
     
-    # Otherwise return cleaned string
-    return txt.strip()
+    # If we still have text but it contains JSON syntax, try to clean it
+    cleaned = re.sub(r'[{}"]', '', txt).strip()
+    if cleaned and cleaned.upper().startswith('SELECT'):
+        return cleaned
+    
+    # Return empty string if no valid SQL found
+    return ""
 
 
 def detect_forecast_intent(txt: str) -> bool:
