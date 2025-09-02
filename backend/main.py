@@ -10,6 +10,179 @@ from dotenv import load_dotenv
 from typing import Optional, List, Any
 
 from .db import fetch_schema, safe_select
+from .llm_sql import build_chain, extract_sql, detect_forecast_intent
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+load_dotenv()
+
+DB_PATH = os.getenv('DB_PATH','./data/northwind.db')
+HOST = os.getenv('HOST', '0.0.0.0')
+PORT = int(os.getenv('PORT', 8080))
+ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', '*').split(',')
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+
+chain = None
+schema = None
+
+class GenerateSQLQuery(BaseModel):
+    question: str = Field(..., min_length=1, max_length=1000, description='Natural language question')
+    execute: bool = Field(default=True, description='Whether to execute the generated SQL')
+
+class SQLResponse(BaseModel):
+    sql: Optional[str] = None
+    forecast: Optional[bool] = None
+    table: Optional[str] = None
+    columns: Optional[List[str]] = None
+    rows: Optional[List[List[Any]]] = None
+    message: Optional[str] = None
+    type: Optional[str] = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global chain, schema
+    try:
+        logger.info(f'Initializing database at {DB_PATH}')
+        schema = fetch_schema(DB_PATH)
+        logger.info('Database initialized successfully!')
+
+        logger.info('Building LLM chain')
+        chain = build_chain()
+        logger.info('LLM chain built successfully!')
+    except Exception as e:
+        logger.error(f'Failed to initialize application: {e}')
+        raise
+    yield
+    logger.info('Application shutdown')
+
+app = FastAPI(
+    title='Conversational Insight Generator', 
+    description='Natural Language to SQL query generation and execution service', 
+    version='1.0.0', 
+    lifespan=lifespan
+)
+app.add_middleware(
+    CORSMiddleware, 
+    allow_origins=ALLOWED_ORIGINS, 
+    allow_methods=['GET','POST'], 
+    allow_headers=['*']
+)
+
+@app.exception_handler(Exception)
+async def global_execution_handler(request, exc):
+    logger.error(f'Unhandled exception: {exc}', exc_info=True)
+    return JSONResponse(status_code=500, content={'error': 'Internal server error'})
+
+def get_chain():
+    if chain is None:
+        raise HTTPException(status_code=503, detail="Service not ready - LLM chain not initialized")
+    return chain
+
+def get_schema():
+    if schema is None:
+        raise HTTPException(status_code=503, detail="Service not ready - Database schema not loaded")
+    return schema
+
+@app.get('/api/health')
+def health_check():
+    return {'status':'healthy','database_initialized': schema is not None,'llm_chain_initialized': chain is not None}
+
+@app.get('/api/test')
+def test_data():
+    cols, rows = safe_select('SELECT * FROM customers LIMIT 5', DB_PATH)
+    return {'columns': cols, 'rows': rows}
+
+@app.post('/api/nl2sql')
+def nl2sql(
+    query: GenerateSQLQuery, 
+    llm_chain=Depends(get_chain), 
+    db_schema=Depends(get_schema)
+):
+    try:
+        logger.info(f"Processing question: {query.question}")
+
+        # Detect forecast intent early
+        if detect_forecast_intent(query.question):
+            return SQLResponse(
+                sql=None,
+                forecast=True,
+                type="forecast",
+                message="This is a forecasting request.",
+                columns=[],
+                rows=[]
+            ).model_dump()
+
+        response = llm_chain.invoke({'schema': db_schema, 'question': query.question})
+
+        # Parse response
+        response_dict = {}
+        try:
+            response_dict = json.loads(response) if response.strip().startswith('{') else {}
+        except Exception:
+            response_dict = {}
+
+        sql = response_dict.get('sql')
+        if not sql:
+            sql = extract_sql(response) or None
+
+        forecast = response_dict.get('forecast', False)
+
+        result = SQLResponse(sql=sql, forecast=forecast, type="table")
+
+        if query.execute and not forecast:
+            try:
+                columns, rows = safe_select(sql, DB_PATH)
+                table = PrettyTable() if rows else None
+                if table:
+                    table.field_names = columns
+                    for row in rows:
+                        table.add_row(row)
+                    result.table = str(table)
+                else:
+                    result.table = 'No data found'
+                result.columns = columns
+                result.rows = rows
+                logger.info(f"SQL executed successfully, returned {len(rows)} rows")
+            except Exception as e:
+                result.message = f"SQL execution error: {e}"
+                result.type = "text"
+        return result.model_dump()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f'Error processing request: {e}', exc_info=True)
+        raise HTTPException(status_code=500, detail='Failed to process request')
+
+@app.get('/')
+def read_root():
+    return FileResponse('frontend/dist/index.html')
+
+app.mount('/static', StaticFiles(directory='frontend/dist', html=True), name='static')
+
+if __name__ == '__main__':
+    uvicorn.run('main:app', host=HOST, port=PORT, log_level=LOG_LEVEL.lower(), reload=True)
+
+""" EDIT 1 ------------------------------------------------------------
+from prettytable import PrettyTable
+import os, logging, uvicorn, sqlite3, json
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+from typing import Optional, List, Any
+
+from .db import fetch_schema, safe_select
 from .llm_sql import build_chain, extract_sql
 
 logging.basicConfig(
@@ -152,6 +325,7 @@ app.mount('/static', StaticFiles(directory='frontend/dist', html=True), name='st
 
 if __name__ == '__main__':
     uvicorn.run('main:app', host=HOST, port=PORT, log_level=LOG_LEVEL.lower(), reload=True)
+"""
 
 # from prettytable import PrettyTable
 # import os, logging, uvicorn, sqlite3

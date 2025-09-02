@@ -1,5 +1,150 @@
 import { Message } from './ChatWindow';
 import { cn } from '@/lib/utils';
+import { ChartRenderer } from './ChartRenderer';
+
+interface ChatMessageProps {
+  message: Message;
+}
+
+export const ChatMessage = ({ message }: ChatMessageProps) => {
+  const isUser = message.role === 'user';
+
+  const renderContent = () => {
+    if (isUser) return <div className="whitespace-pre-wrap">{message.content}</div>;
+
+    switch (message.type) {
+      case 'sql':
+        return (
+          <div className="bg-slate-800 text-slate-100 p-4 rounded-lg font-mono text-sm overflow-x-auto">
+            <div className="text-xs text-slate-400 mb-2 uppercase tracking-wide">SQL Query</div>
+            <pre className="whitespace-pre-wrap">
+              <code
+                dangerouslySetInnerHTML={{
+                  __html: message.content
+                    .replace(
+                      /\b(SELECT|FROM|WHERE|JOIN|AS|SUM|COUNT|LIMIT|GROUP BY|ORDER BY|DESC|ASC)\b/gi,
+                      '<span class="text-green-400 font-bold">$1</span>'
+                    )
+                    .replace(/'([^']*)'/g, '<span class="text-orange-300">\'$1\'</span>'),
+                }}
+              />
+            </pre>
+          </div>
+        );
+
+      case 'table':
+        return (
+          <div className="space-y-4">
+            <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-lg overflow-x-auto">
+              <div className="text-xs text-green-600 dark:text-green-400 mb-2 uppercase tracking-wide">
+                Query Results
+              </div>
+              <div className="overflow-x-auto max-w-full">
+                <table className="min-w-max text-sm border-collapse border border-slate-400 dark:border-slate-600">
+                  <thead>
+                    <tr>
+                      {message.columns?.map((col, idx) => (
+                        <th
+                          key={idx}
+                          className="border px-2 py-1 dark:border-slate-600 text-left whitespace-nowrap"
+                        >
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {message.rows?.length ? (
+                      message.rows.map((row, i) => (
+                        <tr key={i}>
+                          {row.map((cell, j) => (
+                            <td
+                              key={j}
+                              className="border px-2 py-1 dark:border-slate-600 whitespace-nowrap"
+                            >
+                              {cell === null ? 'NULL' : String(cell)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={message.columns?.length || 1}
+                          className="text-center text-muted-foreground py-2"
+                        >
+                          No rows returned
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {/* Collapsible Chart Section */}
+            {message.rows && message.rows.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                  Show Chart
+                </summary>
+                <div className="mt-2">
+                  <ChartRenderer columns={message.columns || []} rows={message.rows || []} />
+                </div>
+              </details>
+            )}
+            {/* {message.rows && message.rows.length > 0 && (
+              <ChartRenderer columns={message.columns || []} rows={message.rows || []} />
+            )} */}
+          </div>
+        );
+
+      case 'forecast':
+        return (
+          <div className="bg-yellow-50 dark:bg-yellow-700 p-4 rounded-lg">
+            <div className="text-xs text-yellow-600 dark:text-yellow-400 mb-2 uppercase tracking-wide">
+              Forecast
+            </div>
+            <div className="font-mono text-sm">This is a forecasting request.</div>
+          </div>
+        );
+
+      default:
+        return <div className="whitespace-pre-wrap">{message.content}</div>;
+    }
+  };
+
+  return (
+    <div className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+      <div
+        className={cn(
+          'max-w-[80%] rounded-2xl px-4 py-3 shadow-sm transition-all duration-300 hover:scale-[1.02]',
+          isUser
+            ? 'bg-primary text-primary-foreground ml-12'
+            : 'bg-chat-surface text-foreground mr-12 border border-border/20'
+        )}
+      >
+        {renderContent()}
+        <div
+          className={cn(
+            'text-xs mt-2 opacity-70',
+            isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'
+          )}
+        >
+          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// EDIT 3 ------------------------------------------------------------------------------------------------------------------------
+/*
+import { Message } from './ChatWindow';
+import { cn } from '@/lib/utils';
+import { ChartRenderer } from './ChartRenderer';
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 interface ChatMessageProps {
   message: Message;
@@ -10,68 +155,95 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
 
   const renderContent = () => {
     if (isUser) return message.content;
-    
+
     switch (message.type) {
       case 'sql':
         return (
           <div className="bg-slate-800 text-slate-100 p-4 rounded-lg font-mono text-sm overflow-x-auto">
             <div className="text-xs text-slate-400 mb-2 uppercase tracking-wide">SQL Query</div>
-            <pre>{message.content}</pre>
+            <SyntaxHighlighter
+              language="sql"
+              style={oneDark}
+              customStyle={{
+                borderRadius: "0.5rem",
+                fontSize: "0.9rem",
+                padding: "0.75rem",
+                background: "transparent",
+              }}
+            >
+              {message.content}
+            </SyntaxHighlighter>
           </div>
         );
+
       case 'table':
         return (
-          <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-lg">
-            <div className="text-xs text-green-600 dark:text-green-400 mb-2 uppercase tracking-wide">
-              Query Results
-            </div>
-            <table className="w-full text-sm border-collapse border border-slate-400 dark:border-slate-600">
-              <thead>
-                <tr>
-                  {message.columns?.map((col, idx) => (
-                    <th key={idx} className="border px-2 py-1 dark:border-slate-600">{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {message.rows?.length ? (
-                  message.rows.map((row, i) => (
-                    <tr key={i}>
-                      {row.map((cell, j) => (
-                        <td key={j} className="border px-2 py-1 dark:border-slate-600">{cell}</td>
-                      ))}
-                    </tr>
-                  ))
-                ) : (
+          <div className="space-y-4">
+            <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-lg overflow-x-auto">
+              <div className="text-xs text-green-600 dark:text-green-400 mb-2 uppercase tracking-wide">
+                Query Results
+              </div>
+              <table className="min-w-max text-sm border-collapse border border-slate-400 dark:border-slate-600">
+                <thead>
                   <tr>
-                    <td colSpan={message.columns?.length || 1} className="text-center text-muted-foreground py-2">
-                      No rows returned
-                    </td>
+                    {message.columns?.map((col, idx) => (
+                      <th key={idx} className="border px-2 py-1 dark:border-slate-600">{col}</th>
+                    ))}
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {message.rows?.length ? (
+                    message.rows.map((row, i) => (
+                      <tr key={i} className="even:bg-slate-100 dark:even:bg-slate-800">
+                        {row.map((cell, j) => (
+                          <td key={j} className="border px-2 py-1 dark:border-slate-600">
+                            {cell === null ? "NULL" : String(cell)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={message.columns?.length || 1} className="text-center text-muted-foreground py-2">
+                        No rows returned
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {message.rows?.length ? (
+              <ChartRenderer columns={message.columns || []} rows={message.rows || []} />
+            ) : null}
           </div>
         );
+
       case 'forecast':
         return (
           <div className="bg-yellow-50 dark:bg-yellow-700 p-4 rounded-lg">
             <div className="text-xs text-yellow-600 dark:text-yellow-400 mb-2 uppercase tracking-wide">
               Forecast
             </div>
-            <div className="font-mono text-sm">This is a forecasting request.</div>
+            <div className="font-mono text-sm">
+              {message.content || "🔮 This is a forecasting request."}
+            </div>
           </div>
         );
+
       default:
-        return <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg">{message.content}</div>;
+        return (
+          <div className="whitespace-pre-wrap break-words">
+            {message.content}
+          </div>
+        );
     }
   };
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start", "my-2")}> 
+    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "p-3 rounded-lg max-w-xl shadow",
+          "max-w-[80%] rounded-2xl px-4 py-3 shadow-sm transition-all duration-300 hover:scale-[1.02]",
           isUser
             ? "bg-primary text-primary-foreground ml-12"
             : "bg-chat-surface text-foreground mr-12 border border-border/20"
@@ -90,6 +262,102 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
     </div>
   );
 };
+*/
+
+
+// EDIT 2 ------------------------------------------------------------------------------------------------------------------------
+// import { Message } from './ChatWindow';
+// import { cn } from '@/lib/utils';
+
+// interface ChatMessageProps {
+//   message: Message;
+// }
+
+// export const ChatMessage = ({ message }: ChatMessageProps) => {
+//   const isUser = message.role === 'user';
+
+//   const renderContent = () => {
+//     if (isUser) return message.content;
+    
+//     switch (message.type) {
+//       case 'sql':
+//         return (
+//           <div className="bg-slate-800 text-slate-100 p-4 rounded-lg font-mono text-sm overflow-x-auto">
+//             <div className="text-xs text-slate-400 mb-2 uppercase tracking-wide">SQL Query</div>
+//             <pre>{message.content}</pre>
+//           </div>
+//         );
+//       case 'table':
+//         return (
+//           <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-lg">
+//             <div className="text-xs text-green-600 dark:text-green-400 mb-2 uppercase tracking-wide">
+//               Query Results
+//             </div>
+//             <table className="w-full text-sm border-collapse border border-slate-400 dark:border-slate-600">
+//               <thead>
+//                 <tr>
+//                   {message.columns?.map((col, idx) => (
+//                     <th key={idx} className="border px-2 py-1 dark:border-slate-600">{col}</th>
+//                   ))}
+//                 </tr>
+//               </thead>
+//               <tbody>
+//                 {message.rows?.length ? (
+//                   message.rows.map((row, i) => (
+//                     <tr key={i}>
+//                       {row.map((cell, j) => (
+//                         <td key={j} className="border px-2 py-1 dark:border-slate-600">{cell}</td>
+//                       ))}
+//                     </tr>
+//                   ))
+//                 ) : (
+//                   <tr>
+//                     <td colSpan={message.columns?.length || 1} className="text-center text-muted-foreground py-2">
+//                       No rows returned
+//                     </td>
+//                   </tr>
+//                 )}
+//               </tbody>
+//             </table>
+//           </div>
+//         );
+//       case 'forecast':
+//         return (
+//           <div className="bg-yellow-50 dark:bg-yellow-700 p-4 rounded-lg">
+//             <div className="text-xs text-yellow-600 dark:text-yellow-400 mb-2 uppercase tracking-wide">
+//               Forecast
+//             </div>
+//             <div className="font-mono text-sm">This is a forecasting request.</div>
+//           </div>
+//         );
+//       default:
+//         return <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg">{message.content}</div>;
+//     }
+//   };
+
+//   return (
+//     <div className={cn("flex", isUser ? "justify-end" : "justify-start", "my-2")}> 
+//       <div
+//         className={cn(
+//           "p-3 rounded-lg max-w-xl shadow",
+//           isUser
+//             ? "bg-primary text-primary-foreground ml-12"
+//             : "bg-chat-surface text-foreground mr-12 border border-border/20"
+//         )}
+//       >
+//         {renderContent()}
+//         <div
+//           className={cn(
+//             "text-xs mt-2 opacity-70",
+//             isUser ? "text-primary-foreground/70" : "text-muted-foreground"
+//           )}
+//         >
+//           {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+//         </div>
+//       </div>
+//     </div>
+//   );
+// };
 
 
 
