@@ -93,14 +93,14 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
               )}
             </div>
             
-            {/* Chart for regular data */}
-            {message.rows && message.rows.length > 0 && !message.sql && (
+            {/* Collapsable Chart for regular data */}
+            {message.rows && message.rows.length > 0 && ( //&& !message.sql && (
               <details className="mt-2">
                 <summary className="cursor-pointer text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                  Show Chart Visualization
+                  Show Chart
                 </summary>
                 <div className="mt-2">
-                  <ChartRenderer columns={message.columns || []} rows={message.rows || []} />
+                  <ChartRenderer columns={message.columns || []} rows={message.rows || []} suggestion={message.chart} />
                 </div>
               </details>
             )}

@@ -141,7 +141,7 @@ RULES:
 def build_chain():
     # Use the best available free model in Groq - llama-3.1-8b-instant
     # This is the highest quality free model that actually exists
-    llm=ChatGroq(model=os.getenv('MODEL_NAME','gemma2-9b-it'), temperature=0)
+    llm=ChatGroq(model=os.getenv('MODEL_NAME','openai/gpt-oss-120b'), temperature=0)
     prompt=ChatPromptTemplate.from_messages([
         ('system', SYSTEM_PROMPT),
         ('human','Schema:\n{schema}\n\nQuestion: {question}\n\nReturn EXACTLY one JSON object with keys "sql", "forecast", "error" only.')])
@@ -254,3 +254,37 @@ def detect_forecast_intent(question: str) -> bool:
 #             sql = sql.rstrip(';') + ' LIMIT 10;'
     
 #     return sql
+
+REFINER_PROMPT = ChatPromptTemplate.from_messages([
+    ('system', """You are a senior analytics engineer. You will receive:
+- the database Schema
+- the User Question
+- the InitialSQL produced by another model
+
+Decide if InitialSQL satisfies the Question. If the question implies a distribution/histogram/breakdown or “by <dimension>”, produce an AGGREGATED query using COUNT(*) or SUM(...) with a proper GROUP BY and a clear metric alias (e.g., EmployeeCount, OrderCount, TotalSales). Prefer ORDER BY the metric DESC when ranking makes sense.
+
+If InitialSQL is already correct, return it unchanged.
+
+Respond with exactly one JSON object: {"sql": "..."} and nothing else."""),
+    ('human', "Schema:\n{schema}\n\nQuestion: {question}\n\nInitialSQL:\n{sql}\n\nReturn JSON.")
+])
+
+def refine_sql(schema: str, question: str, sql: str) -> str:
+    if not sql:
+        return sql
+    try:
+        llm = ChatGroq(model=os.getenv('MODEL_NAME','gemma2-9b-it'), temperature=0)
+        chain = REFINER_PROMPT | llm | StrOutputParser()
+        out = chain.invoke({"schema": schema, "question": question, "sql": sql})
+        try:
+            data = json.loads(out.strip().strip('`'))
+            refined = data.get("sql")
+            if isinstance(refined, str) and refined.strip().upper().startswith("SELECT"):
+                return refined.strip()
+        except Exception:
+            pass
+        if out.strip().upper().startswith("SELECT"):
+            return out.strip()
+        return sql
+    except Exception:
+        return sql
