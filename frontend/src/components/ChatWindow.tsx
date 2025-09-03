@@ -15,6 +15,13 @@ export interface Message {
   rows?: any[][];
   sql?: string;
   forecastData?: any;
+  chart?: {
+    type: 'line' | 'bar' | 'pie' | 'grouped_bar' | 'scatter' | 'table';
+    x?: string | null;
+    y?: string | string[] | null;
+    series?: string | null;
+    reason?: string | null;
+  }
 }
 
 export const ChatWindow = () => {
@@ -84,6 +91,7 @@ export const ChatWindow = () => {
           columns: data.columns,
           rows: data.rows,
           sql: data.sql, // Store SQL for potential forecasting
+          chart: data.chart || undefined,
         };
         newMessages.push(dataMessage);
       } else if (data.message) {
@@ -184,7 +192,8 @@ export const ChatWindow = () => {
 
   // Add forecast button to messages that have forecast-ready data
   const renderForecastButton = (message: Message) => {
-    if (message.type === 'table' && message.sql && message.columns && message.rows) {
+    // Check for both 'table' and 'forecast' message types
+    if ((message.type === 'table' || message.type === 'forecast') && message.sql && message.columns && message.rows) {
       // Check if this looks like time series data
       const hasDateColumn = message.columns.some(col => 
         col.toLowerCase().includes('date') || 

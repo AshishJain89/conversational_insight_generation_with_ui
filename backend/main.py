@@ -14,6 +14,7 @@ from .llm_sql import build_chain, extract_sql, detect_forecast_intent
 from .query_validator import create_validator
 from .feedback_loop import create_feedback_loop
 from .arima_model_selector import ARIMAModelSelector
+from .chart_selector import ChartSuggester
 
 # forecasting imports
 import pandas as pd, numpy as np, io, base64, traceback, matplotlib, matplotlib.pyplot as plt
@@ -50,6 +51,7 @@ chain = None
 schema = None
 validator = None
 feedback_loop = None
+chart_suggester = None
 
 class GenerateSQLQuery(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000, description='Natural language question')
@@ -63,6 +65,7 @@ class SQLResponse(BaseModel):
     rows: Optional[List[List[Any]]] = None
     message: Optional[str] = None
     type: Optional[str] = None
+    chart: Optional[Dict[str, Any]] = None  # chart suggester
 
     class Config:
         arbitrary_types_allowed = True
@@ -83,6 +86,9 @@ async def lifespan(app: FastAPI):
         validator = create_validator(DB_PATH)
         feedback_loop = create_feedback_loop(DB_PATH, max_retries=2)
         logger.info('Query validator and feedback loop initialized successfully!')
+
+        chart_suggester = ChartSuggester()
+        logger.info('Chart suggester initialized!')
     except Exception as e:
         logger.error(f'Failed to initialize application: {e}')
         raise
@@ -127,6 +133,10 @@ def get_feedback_loop():
         raise HTTPException(status_code=503, detail="Service not ready - Feedback loop not initialized")
     return feedback_loop
 
+def get_chart_suggester():
+    if chart_suggester is None:
+        raise HTTPException(status_code=503, detail="Service not ready - Chart suggester not initialized")
+
 @app.get('/api/health')
 def health_check():
     return {
@@ -134,7 +144,8 @@ def health_check():
         'database_initialized': schema is not None,
         'llm_chain_initialized': chain is not None,
         'validator_initialized': validator is not None,
-        'feedback_loop_initialized': feedback_loop is not None
+        'feedback_loop_initialized': feedback_loop is not None,
+        'chart_suggester_initialized': chart_suggester is not None
     }
 
 @app.get('/api/test')
@@ -251,6 +262,14 @@ def nl2sql(
                 columns, rows = safe_select(sql, DB_PATH)
                 result.columns = columns
                 result.rows = rows
+
+                # Suggest chart for returned data (regardless of forecast intent)
+                try:
+                    suggester = get_chart_suggester()
+                    chart = suggester.suggest_chart(query.question, columns, rows)
+                    result.chart = chart
+                except Exception as e:
+                    logger.warning(f"Chart suggestion failed: {e}")
                 
                 # Set appropriate type and message based on forecast intent
                 if forecast:
@@ -297,6 +316,25 @@ def nl2sql(
     except Exception as e:
         logger.error(f'Error processing request: {e}', exc_info=True)
         raise HTTPException(status_code=500, detail='Failed to process request')
+
+# ---- Chart Suggestion endpoint ----
+class ChartSuggestRequest(BaseModel):
+    question: Optional[str] = None
+    columns: List[str]
+    rows: List[List[Any]]
+
+class ChartSuggestResponse(BaseModel):
+    chart: Dict[str, Any]
+
+
+@app.post('/api/chart-suggest')
+def chart_suggest(req: ChartSuggestRequest, suggester=Depends(get_chart_suggester)):
+    try:
+        chart = suggester.suggest_chart(req.question, req.columns, req.rows)
+        return ChartSuggestResponse(chart=chart)
+    except Exception as e:
+        logger.exception('Chart suggestion error')
+        raise HTTPException(status_code=500, detail='Failed to suggest chart')
 
 # ---- Forecast endpoint ----
 MAX_HORIZON = 365
