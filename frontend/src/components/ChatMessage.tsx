@@ -92,21 +92,17 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
                 </div>
               )}
             </div>
-            
-            {/* Collapsable Chart for regular data */}
-            {message.rows && message.rows.length > 0 && ( //&& !message.sql && (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                  Show Chart
-                </summary>
-                <div className="mt-2">
-                  <ChartRenderer columns={message.columns || []} rows={message.rows || []} suggestion={message.chart} />
-                </div>
-              </details>
-            )}
           </div>
         );
-
+      case 'chart':
+        return (
+          <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-lg overflow-x-auto">
+            <div className="text-xs text-blue-600 dark:text-blue-400 mb-2 uppercase tracking-wide">
+              Chart
+            </div>
+            <ChartRenderer columns={message.columns || []} rows={message.rows || []} suggestion={message.chart} />
+          </div>
+        );
       case 'forecast':
         return (
           <div className="space-y-4">

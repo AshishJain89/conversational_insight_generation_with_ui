@@ -10,7 +10,7 @@ export interface Message {
   content: string;
   role: 'user' | 'assistant';
   timestamp: Date;
-  type?: 'text' | 'sql' | 'table' | 'forecast' | 'forecast_result';
+  type?: 'text' | 'sql' | 'table' | 'chart' | 'forecast' | 'forecast_result';
   columns?: string[];
   rows?: any[][];
   sql?: string;
@@ -78,9 +78,9 @@ export const ChatWindow = () => {
         newMessages.push(sqlMessage);
       }
 
-      // Show data if available
       if (data.columns && data.rows) {
-        const dataMessage: Message = {
+        // Table message
+        const tableMessage: Message = {
           id: (Date.now() + 2).toString(),
           content: data.forecast ? 
             `Retrieved ${data.rows.length} rows for forecasting analysis.` : 
@@ -91,9 +91,23 @@ export const ChatWindow = () => {
           columns: data.columns,
           rows: data.rows,
           sql: data.sql, // Store SQL for potential forecasting
-          chart: data.chart || undefined,
         };
-        newMessages.push(dataMessage);
+        newMessages.push(tableMessage);
+
+        // Always create a chart message if chart suggestion exists and there are rows
+        if (data.chart && data.rows && data.rows.length > 0) {
+          const chartMessage: Message = {
+            id: (Date.now() + 3).toString(),
+            content: '', // Chart doesn't need text content
+            role: 'assistant',
+            timestamp: new Date(),
+            type: 'chart',
+            columns: data.columns,
+            rows: data.rows,
+            chart: data.chart,
+          };
+          newMessages.push(chartMessage);
+        }
       } else if (data.message) {
         // Error or text response
         const textMessage: Message = {
