@@ -3,7 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
 
-SYSTEM_PROMPT='''You are an expert SQLite generator for the Northwind database.
+SYSTEM_PROMPT = """You are an expert SQLite generator for the Northwind database.
 
 STRICT REQUIREMENTS:
 1. Only use SQLite syntax - NEVER use SQL Server syntax like "SELECT TOP N".
@@ -136,52 +136,65 @@ RULES:
 - Always return a single SELECT statement when applicable.
 - Never output explanations, markdown, or any text outside the single JSON object.
 - For complex queries, break them down into logical JOINs and use proper aliases.
-'''
+"""
+
 
 def build_chain():
     # Use the best available free model in Groq - llama-3.1-8b-instant
     # This is the highest quality free model that actually exists
-    llm=ChatGroq(model=os.getenv('MODEL_NAME','openai/gpt-oss-120b'), temperature=0)
-    prompt=ChatPromptTemplate.from_messages([
-        ('system', SYSTEM_PROMPT),
-        ('human','Schema:\n{schema}\n\nQuestion: {question}\n\nReturn EXACTLY one JSON object with keys "sql", "forecast", "error" only.')])
+    llm = ChatGroq(model=os.getenv("MODEL_NAME", "openai/gpt-oss-120b"), temperature=0)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_PROMPT),
+            (
+                "human",
+                'Schema:\n{schema}\n\nQuestion: {question}\n\nReturn EXACTLY one JSON object with keys "sql", "forecast", "error" only.',
+            ),
+        ]
+    )
     return prompt | llm | StrOutputParser()
+
 
 def extract_sql(txt: str) -> str:
     if not txt:
         return ""
-    
+
     # Remove markdown fences like ```json ...  ``` or ```sql ... ```
-    fenced = re.search(r'```(?:json|sql)?\s*(.*?)```', txt, re.S | re.I)
+    fenced = re.search(r"```(?:json|sql)?\s*(.*?)```", txt, re.S | re.I)
     if fenced:
         txt = fenced.group(1).strip()
-    
+
     # Try to parse JSON and extract sql
     try:
         data = json.loads(txt)
-        if isinstance(data, dict) and 'sql' in data and data['sql'] is not None:
-            sql = data['sql'].strip()
+        if isinstance(data, dict) and "sql" in data and data["sql"] is not None:
+            sql = data["sql"].strip()
             # Validate the extracted SQL
-            if sql and sql.upper().startswith('SELECT') and '{' not in sql and '}' not in sql:
+            if (
+                sql
+                and sql.upper().startswith("SELECT")
+                and "{" not in sql
+                and "}" not in sql
+            ):
                 return sql
     except Exception:
         pass
-    
+
     # Try to extract SQL from text using regex
-    m = re.search(r'(SELECT[\s\S]+?;?)$', txt, re.I)
+    m = re.search(r"(SELECT[\s\S]+?;?)$", txt, re.I)
     if m:
         sql = m.group(1).strip()
         # Fix common issues
-        sql = re.sub(r'\bSELECT\s+TOP\s+(\d+)\b', 'SELECT', sql, flags=re.I)
+        sql = re.sub(r"\bSELECT\s+TOP\s+(\d+)\b", "SELECT", sql, flags=re.I)
         # Ensure no JSON syntax remains
-        if '{' not in sql and '}' not in sql:
+        if "{" not in sql and "}" not in sql:
             return sql
-    
+
     # If we still have text but it contains JSON syntax, try to clean it
-    cleaned = re.sub(r'[{}"]', '', txt).strip()
-    if cleaned and cleaned.upper().startswith('SELECT'):
+    cleaned = re.sub(r'[{}"]', "", txt).strip()
+    if cleaned and cleaned.upper().startswith("SELECT"):
         return cleaned
-    
+
     # Return empty string if no valid SQL found
     return ""
 
@@ -189,32 +202,53 @@ def extract_sql(txt: str) -> str:
 def detect_forecast_intent(question: str) -> bool:
     """Detect if user wants forecasting (future predictions) vs historical analysis"""
     question_lower = question.lower()
-    
+
     # Forecasting keywords - user wants future predictions
     forecast_keywords = [
-        'forecast', 'predict', 'future', 'next', 'upcoming', 'coming months',
-        'coming year', 'next year', 'next month', 'trend prediction',
-        'what will', 'how much will', 'estimate future'
+        "forecast",
+        "predict",
+        "future",
+        "next",
+        "upcoming",
+        "coming months",
+        "coming year",
+        "next year",
+        "next month",
+        "trend prediction",
+        "what will",
+        "how much will",
+        "estimate future",
     ]
-    
+
     # Historical analysis keywords - user wants past data analysis
     historical_keywords = [
-        'trends', 'history', 'past', 'previous', 'last year', 'last month',
-        'historical', 'over time', 'monthly trends', 'yearly trends',
-        'what were', 'how much was', 'analyze past'
+        "trends",
+        "history",
+        "past",
+        "previous",
+        "last year",
+        "last month",
+        "historical",
+        "over time",
+        "monthly trends",
+        "yearly trends",
+        "what were",
+        "how much was",
+        "analyze past",
     ]
-    
+
     # Check for forecasting intent
-    has_forecast_intent = any(keyword in question_lower for keyword in forecast_keywords)
-    
+    has_forecast_intent = any(
+        keyword in question_lower for keyword in forecast_keywords
+    )
+
     # Check for historical intent
-    has_historical_intent = any(keyword in question_lower for keyword in historical_keywords)
-    
+    has_historical_intent = any(
+        keyword in question_lower for keyword in historical_keywords
+    )
+
     # Only return True if user explicitly wants forecasting, not just time-series data
     return has_forecast_intent and not has_historical_intent
-
-
-
 
 
 # import os, re
@@ -222,7 +256,7 @@ def detect_forecast_intent(question: str) -> bool:
 # from langchain_core.output_parsers import StrOutputParser
 # from langchain_groq import ChatGroq
 
-# SYSTEM_PROMPT='''You are an expert SQLite generator for the Northwind database. 
+# SYSTEM_PROMPT='''You are an expert SQLite generator for the Northwind database.
 
 # STRICT REQUIREMENTS:
 # 1. Only use SQLite syntax - NEVER use SQL Server syntax like "SELECT TOP N"
@@ -232,7 +266,7 @@ def detect_forecast_intent(question: str) -> bool:
 # 5. Output only a single SELECT query that works in SQLite
 
 # COMMON FIXES:
-# - "OrderDetails" not "Order_Details" 
+# - "OrderDetails" not "Order_Details"
 # - Use proper JOIN syntax
 # - SQLite is case-sensitive for table/column names'''
 
@@ -246,17 +280,20 @@ def detect_forecast_intent(question: str) -> bool:
 # def extract_sql(txt:str)->str:
 #     m=re.search(r'```sql\s*(.*?)```',txt,re.S|re.I)
 #     sql = m.group(1).strip() if m else txt.strip()
-    
+
 #     # Fallback fixes for common issues
 #     if 'TOP ' in sql.upper():
 #         sql = re.sub(r'\bSELECT\s+TOP\s+(\d+)\b', r'SELECT', sql, flags=re.IGNORECASE)
 #         if 'LIMIT' not in sql.upper():
 #             sql = sql.rstrip(';') + ' LIMIT 10;'
-    
+
 #     return sql
 
-REFINER_PROMPT = ChatPromptTemplate.from_messages([
-    ('system', """You are a senior analytics engineer. You will receive:
+REFINER_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """You are a senior analytics engineer. You will receive:
 - the database Schema
 - the User Question
 - the InitialSQL produced by another model
@@ -265,21 +302,29 @@ Decide if InitialSQL satisfies the Question. If the question implies a distribut
 
 If InitialSQL is already correct, return it unchanged.
 
-Respond with exactly one JSON object: {"sql": "..."} and nothing else."""),
-    ('human', "Schema:\n{schema}\n\nQuestion: {question}\n\nInitialSQL:\n{sql}\n\nReturn JSON.")
-])
+Respond with exactly one JSON object: {"sql": "..."} and nothing else.""",
+        ),
+        (
+            "human",
+            "Schema:\n{schema}\n\nQuestion: {question}\n\nInitialSQL:\n{sql}\n\nReturn JSON.",
+        ),
+    ]
+)
+
 
 def refine_sql(schema: str, question: str, sql: str) -> str:
     if not sql:
         return sql
     try:
-        llm = ChatGroq(model=os.getenv('MODEL_NAME','gemma2-9b-it'), temperature=0)
+        llm = ChatGroq(model=os.getenv("MODEL_NAME", "gemma2-9b-it"), temperature=0)
         chain = REFINER_PROMPT | llm | StrOutputParser()
         out = chain.invoke({"schema": schema, "question": question, "sql": sql})
         try:
-            data = json.loads(out.strip().strip('`'))
+            data = json.loads(out.strip().strip("`"))
             refined = data.get("sql")
-            if isinstance(refined, str) and refined.strip().upper().startswith("SELECT"):
+            if isinstance(refined, str) and refined.strip().upper().startswith(
+                "SELECT"
+            ):
                 return refined.strip()
         except Exception:
             pass

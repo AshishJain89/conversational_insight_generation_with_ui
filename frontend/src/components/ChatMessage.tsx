@@ -1,7 +1,7 @@
 import { Message } from './ChatWindow';
 import { cn } from '@/lib/utils';
 import { ChartRenderer } from './ChartRenderer';
-import { TrendingUp, BarChart3 } from 'lucide-react';
+import { TrendingUp, BarChart3, Lightbulb } from 'lucide-react';
 
 interface ChatMessageProps {
   message: Message;
@@ -9,8 +9,6 @@ interface ChatMessageProps {
 
 export const ChatMessage = ({ message }: ChatMessageProps) => {
   const isUser = message.role === 'user';
-
-
 
   const renderContent = () => {
     if (isUser) return <div className="whitespace-pre-wrap">{message.content}</div>;
@@ -94,6 +92,7 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
             </div>
           </div>
         );
+
       case 'chart':
         return (
           <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-lg overflow-x-auto">
@@ -103,10 +102,23 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
             <ChartRenderer columns={message.columns || []} rows={message.rows || []} suggestion={message.chart} />
           </div>
         );
+
+      case 'insight':
+        return (
+          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 p-4 rounded-lg border border-purple-200 dark:border-purple-700">
+            <div className="text-xs text-purple-700 dark:text-purple-400 mb-3 uppercase tracking-wide flex items-center gap-2">
+              <Lightbulb className="h-3 w-3" />
+              Data Insights & Trends
+            </div>
+            <div className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-wrap leading-relaxed">
+              {message.content}
+            </div>
+          </div>
+        );
+
       case 'forecast':
         return (
           <div className="space-y-4">
-            {/* Forecast intent message */}
             <div className="bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 p-4 rounded-lg border border-yellow-200 dark:border-yellow-700">
               <div className="text-xs text-yellow-700 dark:text-yellow-400 mb-2 uppercase tracking-wide flex items-center gap-2">
                 <TrendingUp className="h-3 w-3" />
@@ -120,7 +132,6 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
               </div>
             </div>
             
-            {/* Data table - same as table case */}
             {message.columns && message.rows && (
               <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-lg overflow-x-auto">
                 <div className="text-xs text-green-600 dark:text-green-400 mb-2 uppercase tracking-wide">
@@ -193,7 +204,6 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Model Info */}
                   {forecast?.model && (
                     <div className="text-sm">
                       <span className="font-medium">Model:</span> ARIMA
@@ -203,7 +213,6 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
                     </div>
                   )}
                   
-                  {/* Diagnostics */}
                   {forecast?.diagnostics && (
                     <div className="text-xs space-y-1 text-muted-foreground">
                       {forecast.diagnostics.aic && <div>AIC: {forecast.diagnostics.aic.toFixed(2)}</div>}
@@ -211,7 +220,6 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
                     </div>
                   )}
                   
-                  {/* Forecast Plot */}
                   {forecast?.plot_png_base64 && (
                     <div className="mt-4">
                       <img 
@@ -222,7 +230,6 @@ export const ChatMessage = ({ message }: ChatMessageProps) => {
                     </div>
                   )}
                   
-                  {/* Forecast Table */}
                   {forecast?.forecast && forecast.forecast.length > 0 && (
                     <details className="mt-4">
                       <summary className="cursor-pointer text-sm font-medium text-blue-700 dark:text-blue-400 hover:underline">

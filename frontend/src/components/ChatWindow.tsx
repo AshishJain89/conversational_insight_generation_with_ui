@@ -10,11 +10,12 @@ export interface Message {
   content: string;
   role: 'user' | 'assistant';
   timestamp: Date;
-  type?: 'text' | 'sql' | 'table' | 'chart' | 'forecast' | 'forecast_result';
+  type?: 'text' | 'sql' | 'table' | 'chart' | 'insight' | 'forecast' | 'forecast_result';
   columns?: string[];
   rows?: any[][];
   sql?: string;
   forecastData?: any;
+  insight?: string;
   chart?: {
     type: 'line' | 'bar' | 'pie' | 'grouped_bar' | 'scatter' | 'table';
     x?: string | null;
@@ -63,13 +64,18 @@ export const ChatWindow = () => {
       }
 
       const data = await response.json();
-
-      // Always show SQL if it was generated
-      const newMessages: Message[] = [];
       
+      console.log('Backend response:', data);
+      console.log('Chart suggestion:', data.chart);
+      
+      // Create the 4-message sequence: SQL → Table → Chart → Insight
+      const newMessages: Message[] = [];
+      let messageIdCounter = Date.now();
+      
+      // 1. SQL Message (always show if SQL was generated)
       if (data.sql) {
         const sqlMessage: Message = {
-          id: (Date.now() + 1).toString(),
+          id: (++messageIdCounter).toString(),
           content: data.sql,
           role: 'assistant',
           timestamp: new Date(),
@@ -78,10 +84,10 @@ export const ChatWindow = () => {
         newMessages.push(sqlMessage);
       }
 
+      // 2. Table Message (show if we have data)
       if (data.columns && data.rows) {
-        // Table message
         const tableMessage: Message = {
-          id: (Date.now() + 2).toString(),
+          id: (++messageIdCounter).toString(),
           content: data.forecast ? 
             `Retrieved ${data.rows.length} rows for forecasting analysis.` : 
             "Here are the results:",
@@ -90,14 +96,14 @@ export const ChatWindow = () => {
           type: data.forecast ? 'forecast' : 'table',
           columns: data.columns,
           rows: data.rows,
-          sql: data.sql, // Store SQL for potential forecasting
+          sql: data.sql,
         };
         newMessages.push(tableMessage);
 
-        // Always create a chart message if chart suggestion exists and there are rows
+        // 3, Chart Message (show if chart suggestion exists and there are rows)
         if (data.chart && data.rows && data.rows.length > 0) {
           const chartMessage: Message = {
-            id: (Date.now() + 3).toString(),
+            id: (++messageIdCounter).toString(),
             content: '', // Chart doesn't need text content
             role: 'assistant',
             timestamp: new Date(),
@@ -108,10 +114,23 @@ export const ChatWindow = () => {
           };
           newMessages.push(chartMessage);
         }
+
+        // 4. Insight Message (show if insight was generated)
+        if (data.insight) {
+          const insightMessage: Message = {
+            id: (++messageIdCounter).toString(),
+            content: data.insight,
+            role: 'assistant',
+            timestamp: new Date(),
+            type: 'insight',
+            insight: data.insight,
+          };
+          newMessages.push(insightMessage)
+        }
       } else if (data.message) {
         // Error or text response
         const textMessage: Message = {
-          id: (Date.now() + 1).toString(),
+          id: (++messageIdCounter).toString(),
           content: data.message,
           role: 'assistant',
           timestamp: new Date(),
@@ -120,8 +139,16 @@ export const ChatWindow = () => {
         newMessages.push(textMessage);
       }
 
-      // Add all messages to the chat
-      setMessages(prev => [...prev, ...newMessages]);
+      // Add messages with small delays for better UX
+      for (let i = 0; i < newMessages.length; i++) {
+        setTimeout(() => {
+          setMessages(prev => {
+            // Only add if this message isn't already added
+            if (prev.find(m => m.id === newMessages[i].id)) return prev;
+            return [...prev, newMessages[i]];
+          });
+        }, i * 500); // 500ms delay between messages
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
@@ -206,9 +233,7 @@ export const ChatWindow = () => {
 
   // Add forecast button to messages that have forecast-ready data
   const renderForecastButton = (message: Message) => {
-    // Check for both 'table' and 'forecast' message types
     if ((message.type === 'table' || message.type === 'forecast') && message.sql && message.columns && message.rows) {
-      // Check if this looks like time series data
       const hasDateColumn = message.columns.some(col => 
         col.toLowerCase().includes('date') || 
         col.toLowerCase().includes('time') ||

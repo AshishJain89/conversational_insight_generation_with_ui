@@ -4,7 +4,24 @@ from langchain_groq import ChatGroq
 
 ChartSuggestion = Dict[str, Any]
 
-ALLOWED_TYPES = {"BarChart", "Bar", "XAxis", "YAxis", "Tooltip", "ResponsiveContainer", "PieChart", "Pie", "Cell", "LineChart", "Line", "Legend", "CartesianGrid", "ScatterChart", "Scatter",}
+ALLOWED_TYPES = {
+    "BarChart",
+    "Bar",
+    "XAxis",
+    "YAxis",
+    "Tooltip",
+    "ResponsiveContainer",
+    "PieChart",
+    "Pie",
+    "Cell",
+    "LineChart",
+    "Line",
+    "Legend",
+    "CartesianGrid",
+    "ScatterChart",
+    "Scatter",
+}
+
 
 def _is_number(x: Any) -> bool:
     if x is None or x == "":
@@ -14,14 +31,21 @@ def _is_number(x: Any) -> bool:
     except Exception:
         return False
 
-def _profile_columns(columns: List[str], rows: List[List[Any]], max_profile_rows: int = 500) -> Dict[str, Any]:
+
+def _profile_columns(
+    columns: List[str], rows: List[List[Any]], max_profile_rows: int = 500
+) -> Dict[str, Any]:
     sample = rows[:max_profile_rows] if rows else []
     stats: Dict[str, Any] = {}
     for i, col in enumerate(columns):
         values = [r[i] if i < len(r) else None for r in sample]
         non_null = [v for v in values if v not in (None, "")]
         unique_count = len(set(non_null))
-        numeric_ratio = (sum(1 for v in non_null if _is_number(v)) / len(non_null)) if non_null else 0.0
+        numeric_ratio = (
+            (sum(1 for v in non_null if _is_number(v)) / len(non_null))
+            if non_null
+            else 0.0
+        )
         # keep only lightweight profile info; the LLM decides visualization
         stats[col] = {
             "nonNullCount": len(non_null),
@@ -36,6 +60,7 @@ def _profile_columns(columns: List[str], rows: List[List[Any]], max_profile_rows
         "stats": stats,
     }
 
+
 def _strip_code_fences(text: str) -> str:
     t = text.strip()
     if t.startswith("```"):
@@ -43,6 +68,7 @@ def _strip_code_fences(text: str) -> str:
         t = re.sub(r"^```[a-zA-Z0-9]*\s*", "", t)
         t = re.sub(r"\s*```$", "", t)
     return t.strip()
+
 
 def _validate_suggestion(obj: Dict[str, Any]) -> Optional[ChartSuggestion]:
     if not isinstance(obj, dict):
@@ -69,6 +95,7 @@ def _validate_suggestion(obj: Dict[str, Any]) -> Optional[ChartSuggestion]:
         out["reason"] = str(out["reason"])
     return out
 
+
 class ChartSuggester:
     def __init__(
         self,
@@ -79,14 +106,18 @@ class ChartSuggester:
         retries: int = 2,
         retry_backoff_s: float = 0.8,
     ):
-        self.model_name = model_name or os.getenv("CHART_MODEL_NAME", os.getenv("MODEL_NAME", "llama-3.1-8b-instant"))
+        self.model_name = model_name or os.getenv(
+            "CHART_MODEL_NAME", os.getenv("MODEL_NAME", "llama-3.1-8b-instant")
+        )
         self.temperature = temperature
         self.timeout_s = timeout_s
         self.max_rows_for_llm = max_rows_for_llm
         self.retries = max(0, retries)
         self.retry_backoff_s = retry_backoff_s
 
-    def _build_prompt(self, question: Optional[str], columns: List[str], rows: List[List[Any]]) -> str:
+    def _build_prompt(
+        self, question: Optional[str], columns: List[str], rows: List[List[Any]]
+    ) -> str:
         sample_rows = rows[: self.max_rows_for_llm]
         profile = _profile_columns(columns, rows)
 
@@ -117,7 +148,9 @@ class ChartSuggester:
         )
 
     def _invoke_llm_once(self, prompt: str) -> Optional[ChartSuggestion]:
-        llm = ChatGroq(model=self.model_name, temperature=self.temperature, timeout=self.timeout_s)
+        llm = ChatGroq(
+            model=self.model_name, temperature=self.temperature, timeout=self.timeout_s
+        )
         out = llm.invoke(prompt)
         if not out:
             return None
@@ -136,7 +169,9 @@ class ChartSuggester:
                 return None
         return _validate_suggestion(data)
 
-    def suggest_chart(self, question: Optional[str], columns: List[str], rows: List[List[Any]]) -> ChartSuggestion:
+    def suggest_chart(
+        self, question: Optional[str], columns: List[str], rows: List[List[Any]]
+    ) -> ChartSuggestion:
         prompt = self._build_prompt(question, columns, rows)
 
         # Retry with simple backoff to handle transient failures or minor formatting issues
@@ -155,4 +190,10 @@ class ChartSuggester:
             attempt += 1
 
         # As a last resort in production, default to table to avoid breaking UX
-        return {"type": "table", "x": None, "y": None, "series": None, "reason": f"fallback_due_to_{last_err or 'llm_failure'}"}
+        return {
+            "type": "table",
+            "x": None,
+            "y": None,
+            "series": None,
+            "reason": f"fallback_due_to_{last_err or 'llm_failure'}",
+        }

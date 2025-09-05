@@ -147,6 +147,23 @@ export const ChartRenderer = ({ columns, rows, suggestion }: ChartRendererProps)
       return null;
     }
 
+    // Table fallback if mapping is unusable
+    if (type !== 'table' && ((type === 'line' || type === 'bar' || type === 'grouped_bar') && pickYArray.length === 0)) {
+      return (
+        <Card className="mt-4">
+          <CardContent className="p-4">
+            <div className="text-muted-foreground text-sm">
+              Chart suggestion received but columns don't match data structure.
+              <br />
+              Suggested: {type} chart with x="{x}", y="{Array.isArray(y) ? y.join(', ') : y}"
+              <br />
+              Available columns: {columns.join(', ')}
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
     if (type === 'line' && hasCol(x) && pickYArray.length >= 1) {
       const sorted = [...data].sort((a, b) => new Date(a[x as string]).getTime() - new Date(b[x as string]).getTime());
       return (
@@ -177,7 +194,7 @@ export const ChartRenderer = ({ columns, rows, suggestion }: ChartRendererProps)
               <ScatterChart>
                 <CartesianGrid strokeDasharray='3 3' />
                 <XAxis dataKey={x as string} type='number' />
-                <YAxis dataKey={x as string} type='number' />
+                <YAxis dataKey={y as string} type='number' />
                 <Tooltip />
                 <Legend />
                 <Scatter data={data} fill='#8884d8' />
@@ -200,7 +217,7 @@ export const ChartRenderer = ({ columns, rows, suggestion }: ChartRendererProps)
                 <Tooltip />
                 <Legend />
                 {pickYArray.map((yk, i) => (
-                  <Bar key={yk} dataKey={yk} stroke={COLORS[i % COLORS.length]} />
+                  <Bar key={yk} dataKey={yk} fill={COLORS[i % COLORS.length]} />
                 ))}
               </BarChart> 
             </ResponsiveContainer>
@@ -229,8 +246,18 @@ export const ChartRenderer = ({ columns, rows, suggestion }: ChartRendererProps)
       );
     }
 
-    // table or unsupported -> fall through to null (table already visible above)
-    return null;
+    // table or unsupported -> show debug info
+    return (
+      <Card className="mt-4">
+        <CardContent className="p-4">
+          <div className="text-muted-foreground text-sm">
+            Chart type "{type}" not fully implemented or data structure mismatch.
+            <br />
+            Suggestion: {JSON.stringify(suggestion, null, 2)}
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
   
   // Analyze column types
@@ -464,5 +491,17 @@ export const ChartRenderer = ({ columns, rows, suggestion }: ChartRendererProps)
     );
   }
 
-  return null;
+  return (
+    <Card className="mt-4">
+      <CardContent className="p-4">
+        <div className="text-muted-foreground text-sm">
+          No suitable chart type found for this data structure.
+          <br />
+          Columns: {columns.join(', ')}
+          <br />
+          Column types: {JSON.stringify(columnTypes, null, 2)}
+        </div>
+      </CardContent>
+    </Card>
+  );
 };
